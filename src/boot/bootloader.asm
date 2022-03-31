@@ -69,11 +69,11 @@ call switch_to_pm
 jmp $ ; ...never ending loop!
 
 ; define imports that are defined in 16 bit assembly
-%include "./boot/disk_lib.asm"
-%include "./boot/print_lib.asm"
+%include "./src/boot/disk_lib.asm"
+%include "./src/boot/print_lib.asm"
 
 ; The next import converts from 16 bit to 32 bit assembly
-%include "./boot/start_pm.asm"
+%include "./src/boot/start_pm.asm"
 
 ;-------------------------------------------------------- 32 bit assembly -----------------------------------------------------
 
@@ -94,8 +94,8 @@ jmp $ ; ...never ending loop!
 
 
 ; 32 bit assembly imports
-%include "./boot/gdt.asm"
-%include "./boot/print_string32.asm"
+%include "./src/boot/gdt.asm"
+%include "./src/boot/print_string32.asm"
 
 ; data and variables definitions
 real_mode_message db "Started in 16-bit Real Mode. ", 0

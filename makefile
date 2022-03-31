@@ -1,72 +1,80 @@
-###############################################################################################
-#------------------------------------------makefile-------------------------------------------#
-###############################################################################################
-#                                                                                             #
-# Specifies the compilation of the OS. To compile fully run the command:                      #
-#   make all                                                                                  #
-# There is also the capacity to start emumation of the OS through QEMU using the command:     #
-#   make qemu                                                                                 #
-# To clean all compilation files (not including the final image) use:                         #
-#   make clean                                                                                #
-#                                                                                             #
-###############################################################################################
-#-----------------------------<Iain McWhinnie>----<13/05/2020>--------------------------------#
-###############################################################################################
+
+TARGET_BUILD := ./build/image.img
+TARGET_BOOT := ./build/bootloader.bin
+TARGET_SPACE := ./build/space.bin
+TARGET_KERNEL := ./build/kernel.bin
+
+ROOT_SRC_DIR := ./src
+ROOT_BUILD_DIR := ./build
+BOOT_SRC_DIR := $(ROOT_SRC_DIR)/boot
+DRIVER_SRC_DIR := $(ROOT_SRC_DIR)/drivers
+KERNEL_SRC_DIR := $(ROOT_SRC_DIR)/kernel
+
+KERNEL_ENTRY_SRC := ./src/kernel/kernel_entry.asm
+SPACE_SRC := ./src/boot/space.asm
+
+TEMP_KERNEL_FILE = ./build/kernel.tmp
+
+
+DRIVER_SRCS := $(notdir $(wildcard $(DRIVER_SRC_DIR)/*.c))
+DRIVER_HEADERS := $(wildcard $(DRIVER_SRC_DIR)/*.h)
+KERNEL_SRCS := $(wildcard $(KERNEL_SRC_DIR)/*.c)
+KERNEL_HEADERS := $(wildcard $(KERNEL_SRC_DIR)/*.h)
+
+C_SRCS := $(notdir $(DRIVER_SRCS)) $(notdir $(KERNEL_SRCS))
+ASM_SRCS := $(notdir $(wildcard $(KERNEL_SRC_DIR)/*.asm $(DRIVER_SRC_DIR)/*.asm))
+
+KERNEL_ENTRY_OBJ = $(notdir $(KERNEL_ENTRY_SRC:.asm=.o))
+
+OBJS := $(C_SRCS:.c=.o) $(ASM_SRCS:.asm=.o)
+OBJS_WITHOUT_KERNEL_ENTRY := $(addprefix $(ROOT_BUILD_DIR)/,$(filter-out $(KERNEL_ENTRY_OBJ),$(OBJS) ))
+
+BOOT_SRCS := $(wildcard $(BOOT_SRC_DIR)/*.asm)
+
+comma := ,
+empty := 
+space := $(empty) $(empty)
 
 
 
-C_SOURCES = $(wildcard kernel/*.c drivers/*.c) # define C source files located in /kernel/ and /drivers/
-HEADERS = $(wildcard kernel/*.h drivers/*.h) # define C header files located in /kernel/ and /drivers/
-OBJ = ${C_SOURCES:.c=.o} # every C source is associated with an object file during compilation
-ASM_KERNEL_SOURCES = $(filter-out kernel/kernel_entry.asm, $(wildcard kernel/*.asm)) # define assembly sources used by the kernel (excludes kernel_entry since it needs to be specified as first)
-OBJ_ASM = ${ASM_KERNEL_SOURCES:.asm=.o} # the related object files for the asm sources
+all: $(TARGET_BUILD)
 
-ASM_SOURCES = $(wildcard boot/*.asm ) # define all assembly sources for the bootloader
-
-
-
-# fully compile the OS into a disk image
-all: image.img
-
-
-# compile and run emulator
 qemu: all
-	qemu-system-i386 image.img
+	qemu-system-i386 build/image.img
+
+$(TARGET_BUILD) : $(TARGET_BOOT) $(TARGET_SPACE) $(TARGET_KERNEL)
+	powershell -Command "gc $(subst $(space),$(comma),$^) -Enc Byte -Read 512 |sc $@ -Enc Byte"
 
 
-# combine compiled binary files into image
-# bootloader.bin is a bootloader in the first sector that is 512 bytes long
-# kernel.bin is all the kernel code
-# space.bin is simply padding of zero initialised bytes to lengthen the file since the bootloader loads more sectors than necessary
-image.img : boot/bootloader.bin kernel/kernel.bin boot/space.bin
-	powershell -Command "gc boot/bootloader.bin,kernel/kernel.bin,boot/space.bin -Enc Byte -Read 512 |sc image.img -Enc Byte"
+$(TARGET_BOOT) : $(BOOT_SRCS)
+	nasm $(BOOT_SRC_DIR)/$(notdir $(TARGET_BOOT:.bin=.asm)) -f bin -o $@
 
-
-# build the kernel binary by linking all object files
-# creates a tmp file kernel.tmp that is in the PE executable format
-# objcopy converts the PE executable to binary and then the temporary file is deleted
-
-#https://html.developreference.com/article/18381777/MinGW's+ld+cannot+perform+PE+operations+on+non+PE+output+file
-kernel/kernel.bin : kernel/kernel_entry.o ${OBJ_ASM} ${OBJ}
-	ld -Ttext 0x1000 -o kernel/kernel.tmp $^
-	objcopy -O binary kernel/kernel.tmp $@
-
-
-
-# rule for building object files from C source
-# as a general rule object files depend on headers files so will recompile if a header file is updated
-%.o : %.c ${HEADERS}
-	gcc -ffreestanding -c $< -o $@
-
-# rule for building object files with assembly source
-%.o : %.asm
-	nasm $< -f elf -o $@
-
-# rule for compiling to binary files from assembly source
-# as a general rule one assembly file depends on all other assembly files to make sure updates are found
-%.bin : %.asm ${ASM_SOURCES}
+$(TARGET_SPACE) : $(SPACE_SRC) ## Will become unnecessary when OS is big enough
 	nasm $< -f bin -o $@
 
-# clean all compilation files
+
+
+## We need to specify the kernel_entry.o file specifically
+$(TARGET_KERNEL) : $(ROOT_BUILD_DIR)/$(KERNEL_ENTRY_OBJ) $(OBJS_WITHOUT_KERNEL_ENTRY)
+	ld -Ttext 0x1000 -o $(TEMP_KERNEL_FILE) $^
+	objcopy -O binary $(TEMP_KERNEL_FILE) $@
+
+## OBJECTS FROM C SRC
+
+$(ROOT_BUILD_DIR)/%.o : $(DRIVER_SRC_DIR)/%.c $(DRIVER_HEADERS)
+	gcc -ffreestanding -c $< -o $@
+
+$(ROOT_BUILD_DIR)/%.o : $(KERNEL_SRC_DIR)/%.c $(KERNEL_HEADERS)
+	gcc -ffreestanding -c $< -o $@
+
+## OBJECTS FROM ASM SRC
+
+$(ROOT_BUILD_DIR)/%.o : $(DRIVER_SRC_DIR)/%.asm
+	nasm $< -f elf -o $@
+
+$(ROOT_BUILD_DIR)/%.o : $(KERNEL_SRC_DIR)/%.asm
+	nasm $< -f elf -o $@
+
+
 clean:
-	powershell -Command "rm kernel\*.bin, kernel\*.o, drivers\*.o, boot\*.bin, kernel\*.tmp"
+	powershell -Command "rm build\*"

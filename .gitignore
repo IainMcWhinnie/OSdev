@@ -42,6 +42,11 @@
 *.idb
 *.pdb
 
+# OUR IMAGE FILES
+*.img
+*.bin
+*.tmp 
+
 # Kernel Module Compile Results
 *.mod*
 *.cmd
